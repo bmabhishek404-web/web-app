@@ -1,306 +1,438 @@
-// Quiz Data
-const quizData = [
-    {
-        question: "What is the capital of France?",
-        options: ["London", "Berlin", "Paris", "Madrid"],
-        correct: 2,
-        difficulty: "Easy"
-    },
-    {
-        question: "Which planet is known as the Red Planet?",
-        options: ["Venus", "Mars", "Jupiter", "Saturn"],
-        correct: 1,
-        difficulty: "Easy"
-    },
-    {
-        question: "What is the largest ocean on Earth?",
-        options: ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean", "Pacific Ocean"],
-        correct: 3,
-        difficulty: "Easy"
-    },
-    {
-        question: "Who wrote 'Romeo and Juliet'?",
-        options: ["Jane Austen", "Charles Dickens", "William Shakespeare", "Mark Twain"],
-        correct: 2,
-        difficulty: "Medium"
-    },
-    {
-        question: "What is the chemical symbol for Gold?",
-        options: ["Go", "Gd", "Au", "Ag"],
-        correct: 2,
-        difficulty: "Medium"
-    },
-    {
-        question: "In which year did World War II end?",
-        options: ["1943", "1944", "1945", "1946"],
-        correct: 2,
-        difficulty: "Medium"
-    },
-    {
-        question: "What is the smallest prime number?",
-        options: ["0", "1", "2", "3"],
-        correct: 2,
-        difficulty: "Hard"
-    },
-    {
-        question: "Which physicist developed the theory of relativity?",
-        options: ["Isaac Newton", "Albert Einstein", "Stephen Hawking", "Galileo Galilei"],
-        correct: 1,
-        difficulty: "Hard"
-    },
-    {
-        question: "What is the most spoken language in the world?",
-        options: ["English", "Spanish", "Mandarin Chinese", "Hindi"],
-        correct: 2,
-        difficulty: "Medium"
-    },
-    {
-        question: "How many sides does a hexagon have?",
-        options: ["5", "6", "7", "8"],
-        correct: 1,
-        difficulty: "Easy"
-    }
-];
+// Main Quiz Application Logic
 
-// State Management
-let currentQuestion = 0;
-let score = 0;
-let userAnswers = new Array(quizData.length).fill(null);
-let timeRemaining = 30;
-let timerInterval;
+// Global state
+let quizState = {
+    selectedTopics: [],
+    selectedDifficulty: null,
+    currentQuestionIndex: 0,
+    questions: [],
+    answers: [],
+    score: 0,
+    timeLimit: 120, // seconds
+    timeRemaining: 120,
+    timerInterval: null,
+    answered: false
+};
 
-// Initialize
+// Initialize application
 window.addEventListener('DOMContentLoaded', () => {
-    displayQuizInfo();
+    setTimeout(() => {
+        document.getElementById('loadingScreen').style.display = 'none';
+        document.getElementById('mainContainer').style.display = 'block';
+    }, 2000);
 });
 
-function displayQuizInfo() {
-    document.getElementById('totalQuestions').textContent = `Total Questions: ${quizData.length}`;
-    const difficulties = [...new Set(quizData.map(q => q.difficulty))];
-    document.getElementById('totalDifficulty').textContent = `Difficulty Levels: ${difficulties.join(', ')}`;
+// Navigate to topic selection
+function showTopicSelection() {
+    switchScreen('welcomeScreen', 'topicScreen');
 }
 
-function hideScreen(screenId) {
-    const screen = document.getElementById(screenId);
-    screen.classList.remove('active');
+// Show welcome screen
+function showWelcome() {
+    switchScreen(null, 'welcomeScreen');
+    resetQuiz();
 }
 
-function showScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(screen => {
-        screen.classList.remove('active');
+// Switch between screens
+function switchScreen(fromScreen, toScreen) {
+    if (fromScreen) {
+        document.getElementById(fromScreen).classList.remove('active');
+    }
+    document.getElementById(toScreen).classList.add('active');
+}
+
+// Toggle topic selection
+function toggleTopic(element, topic) {
+    const card = element.closest('.topic-card');
+    card.classList.toggle('selected');
+    
+    if (quizState.selectedTopics.includes(topic)) {
+        quizState.selectedTopics = quizState.selectedTopics.filter(t => t !== topic);
+    } else {
+        quizState.selectedTopics.push(topic);
+    }
+    
+    updateStartButton();
+}
+
+// Select difficulty level
+function selectDifficulty(difficulty) {
+    quizState.selectedDifficulty = difficulty;
+    
+    // Update button states
+    document.querySelectorAll('.btn-difficulty').forEach(btn => {
+        btn.classList.remove('selected');
     });
-    document.getElementById(screenId).classList.add('active');
+    document.querySelector(`[data-difficulty="${difficulty}"]`).classList.add('selected');
+    
+    updateStartButton();
 }
 
+// Update start button state
+function updateStartButton() {
+    const btn = document.getElementById('startBtn');
+    btn.disabled = !(quizState.selectedTopics.length > 0 && quizState.selectedDifficulty);
+}
+
+// Start quiz
 function startQuiz() {
-    currentQuestion = 0;
-    score = 0;
-    userAnswers = new Array(quizData.length).fill(null);
-    showScreen('quizScreen');
-    displayQuestion();
+    if (quizState.selectedTopics.length === 0 || !quizState.selectedDifficulty) {
+        alert('Please select at least one topic and a difficulty level');
+        return;
+    }
+    
+    // Load questions
+    const allQuestions = [];
+    quizState.selectedTopics.forEach(topic => {
+        const topicQuestions = getQuestionsForQuiz(topic, quizState.selectedDifficulty, 10);
+        allQuestions.push(...topicQuestions);
+    });
+    
+    // Shuffle questions
+    quizState.questions = allQuestions.sort(() => Math.random() - 0.5).slice(0, 10);
+    quizState.answers = new Array(quizState.questions.length).fill(null);
+    quizState.currentQuestionIndex = 0;
+    quizState.score = 0;
+    quizState.answered = false;
+    
+    // Set time limit based on difficulty
+    if (quizState.selectedDifficulty === 'easy') {
+        quizState.timeLimit = 120; // 2 minutes per question
+    } else {
+        quizState.timeLimit = 240; // 4 minutes per question
+    }
+    quizState.timeRemaining = quizState.timeLimit;
+    
+    switchScreen('topicScreen', 'quizScreen');
+    loadQuestion();
     startTimer();
 }
 
-function displayQuestion() {
-    const question = quizData[currentQuestion];
-    document.getElementById('questionNumber').textContent = `Question ${currentQuestion + 1} of ${quizData.length}`;
+// Load current question
+function loadQuestion() {
+    const question = quizState.questions[quizState.currentQuestionIndex];
+    quizState.answered = false;
+    
+    // Update progress
+    updateProgress();
+    
+    // Update difficulty badge
+    const badge = document.getElementById('difficultyBadge');
+    badge.textContent = quizState.selectedDifficulty.charAt(0).toUpperCase() + quizState.selectedDifficulty.slice(1);
+    badge.className = `difficulty-badge ${quizState.selectedDifficulty}`;
+    
+    // Display question
     document.getElementById('questionText').textContent = question.question;
     
+    // Clear feedback
+    document.getElementById('feedbackArea').style.display = 'none';
+    
+    // Display options
     const optionsContainer = document.getElementById('optionsContainer');
     optionsContainer.innerHTML = '';
     
     question.options.forEach((option, index) => {
-        const optionDiv = document.createElement('div');
+        const optionDiv = document.createElement('label');
         optionDiv.className = 'option';
-        if (userAnswers[currentQuestion] === index) {
-            optionDiv.classList.add('selected');
-        }
-        
         optionDiv.innerHTML = `
-            <input type="radio" id="option${index}" name="answer" value="${index}" 
-                   ${userAnswers[currentQuestion] === index ? 'checked' : ''}
-                   onchange="selectAnswer(${index})">
-            <label for="option${index}">${option}</label>
+            <input type="radio" name="option" value="${index}" onchange="selectOption(${index})">
+            <span class="option-text">${option}</span>
         `;
         optionsContainer.appendChild(optionDiv);
     });
     
-    updateProgressBar();
-    updateButtonStates();
+    // Reset submit button
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submit Answer';
+    submitBtn.onclick = submitAnswer;
+    submitBtn.classList.remove('next-btn');
+    
+    // Select previously answered option if exists
+    if (quizState.answers[quizState.currentQuestionIndex] !== null) {
+        document.querySelector(`input[value="${quizState.answers[quizState.currentQuestionIndex]}"]`).checked = true;
+    }
+    
+    // Restart timer
+    clearInterval(quizState.timerInterval);
+    quizState.timeRemaining = quizState.timeLimit;
+    startTimer();
 }
 
-function selectAnswer(index) {
-    userAnswers[currentQuestion] = index;
-    document.querySelectorAll('.option').forEach((option, i) => {
-        if (i === index) {
-            option.classList.add('selected');
+// Select option
+function selectOption(index) {
+    document.getElementById('submitBtn').disabled = false;
+}
+
+// Submit answer
+function submitAnswer() {
+    if (quizState.answered) {
+        nextQuestion();
+        return;
+    }
+    
+    const selectedOption = document.querySelector('input[name="option"]:checked');
+    
+    if (!selectedOption) {
+        alert('Please select an option');
+        return;
+    }
+    
+    const selectedIndex = parseInt(selectedOption.value);
+    const question = quizState.questions[quizState.currentQuestionIndex];
+    const isCorrect = selectedIndex === question.correct;
+    
+    quizState.answers[quizState.currentQuestionIndex] = selectedIndex;
+    
+    if (isCorrect) {
+        quizState.score++;
+    }
+    
+    quizState.answered = true;
+    
+    // Show feedback
+    showFeedback(isCorrect, question);
+    
+    // Update score display
+    document.getElementById('scoreDisplay').textContent = `${quizState.score}/${quizState.currentQuestionIndex + 1}`;
+    
+    // Update button
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.textContent = quizState.currentQuestionIndex === quizState.questions.length - 1 ? 'Finish Quiz' : 'Next Question';
+    submitBtn.classList.add('next-btn');
+    submitBtn.onclick = () => {
+        if (quizState.currentQuestionIndex === quizState.questions.length - 1) {
+            finishQuiz();
         } else {
-            option.classList.remove('selected');
+            nextQuestion();
         }
+    };
+    
+    // Disable options after answer
+    document.querySelectorAll('.option input').forEach(input => {
+        input.disabled = true;
     });
+    
+    // Clear timer
+    clearInterval(quizState.timerInterval);
 }
 
+// Show feedback
+function showFeedback(isCorrect, question) {
+    const feedbackArea = document.getElementById('feedbackArea');
+    const feedbackContent = document.getElementById('feedbackContent');
+    
+    feedbackContent.innerHTML = `
+        <div class="feedback-item ${isCorrect ? 'correct' : 'incorrect'}">
+            <h4>${isCorrect ? '✓ Correct!' : '✗ Incorrect'}</h4>
+            <p>${isCorrect ? 'Great job!' : 'The correct answer is: <strong>' + question.options[question.correct] + '</strong>'}</p>
+            <p><strong>Explanation:</strong> ${question.explanation}</p>
+        </div>
+    `;
+    
+    feedbackArea.style.display = 'block';
+}
+
+// Next question
 function nextQuestion() {
-    if (currentQuestion < quizData.length - 1) {
-        currentQuestion++;
-        timeRemaining = 30;
-        displayQuestion();
+    quizState.currentQuestionIndex++;
+    
+    if (quizState.currentQuestionIndex < quizState.questions.length) {
+        loadQuestion();
     } else {
         finishQuiz();
     }
 }
 
-function previousQuestion() {
-    if (currentQuestion > 0) {
-        currentQuestion--;
-        displayQuestion();
-    }
-}
-
-function updateProgressBar() {
-    const progress = ((currentQuestion + 1) / quizData.length) * 100;
-    document.getElementById('progressBar').style.width = progress + '%';
-}
-
-function updateButtonStates() {
-    const prevBtn = document.getElementById('prevBtn');
-    const nextBtn = document.getElementById('nextBtn');
-    
-    prevBtn.disabled = currentQuestion === 0;
-    nextBtn.textContent = currentQuestion === quizData.length - 1 ? 'Finish' : 'Next';
-}
-
-function startTimer() {
-    clearInterval(timerInterval);
-    timeRemaining = 30;
-    timerInterval = setInterval(() => {
-        timeRemaining--;
-        document.getElementById('timer').textContent = timeRemaining + 's';
-        
-        if (timeRemaining <= 10) {
-            document.getElementById('timer').classList.add('warning');
-        }
-        
-        if (timeRemaining <= 0) {
-            nextQuestion();
-        }
-    }, 1000);
-}
-
+// Finish quiz
 function finishQuiz() {
-    clearInterval(timerInterval);
-    
-    // Calculate score
-    score = 0;
-    userAnswers.forEach((answer, index) => {
-        if (answer === quizData[index].correct) {
-            score++;
-        }
-    });
-    
+    clearInterval(quizState.timerInterval);
     showResults();
+    switchScreen('quizScreen', 'resultsScreen');
 }
 
+// Show results
 function showResults() {
-    showScreen('resultsScreen');
-    document.getElementById('finalScore').textContent = score;
+    const totalQuestions = quizState.questions.length;
+    const correctAnswers = quizState.score;
+    const wrongAnswers = totalQuestions - correctAnswers;
+    const percentage = Math.round((correctAnswers / totalQuestions) * 100);
     
-    const percentage = (score / quizData.length) * 100;
+    // Update score display
+    document.getElementById('finalScore').textContent = correctAnswers;
+    document.getElementById('totalQuestions').textContent = `out of ${totalQuestions}`;
+    
+    // Update statistics
+    document.getElementById('correctCount').textContent = correctAnswers;
+    document.getElementById('wrongCount').textContent = wrongAnswers;
+    document.getElementById('percentageScore').textContent = `${percentage}%`;
+    
+    // Update nav
+    document.getElementById('navScore').textContent = `Score: ${correctAnswers}/${totalQuestions}`;
+    
+    // Show performance review
+    showPerformanceReview(percentage);
+}
+
+// Show performance review
+function showPerformanceReview(percentage) {
+    const performanceReview = document.getElementById('performanceReview');
     let message = '';
+    let messageClass = '';
     
-    if (percentage === 100) {
-        message = '🎉 Perfect Score! You are a Quiz Master!';
-    } else if (percentage >= 80) {
-        message = '🌟 Excellent! You did great!';
+    if (percentage >= 90) {
+        message = '🎉 Excellent! You have mastered this topic. Outstanding performance!';
+        messageClass = 'excellent';
+    } else if (percentage >= 75) {
+        message = '👏 Good job! You have a solid understanding of the concepts.';
+        messageClass = 'good';
     } else if (percentage >= 60) {
-        message = '👍 Good job! You passed the quiz!';
-    } else if (percentage >= 40) {
-        message = '📚 Keep learning! Practice makes perfect!';
+        message = '📚 Average performance. Review the concepts and try again.';
+        messageClass = 'average';
     } else {
-        message = '💪 Better luck next time! Keep practicing!';
+        message = '💪 Keep learning! Focus on the weak areas and practice more.';
+        messageClass = 'poor';
     }
     
-    document.getElementById('scoreMessage').textContent = message;
-    displaySummary();
-}
-
-function displaySummary() {
-    const summaryDiv = document.getElementById('resultsSummary');
-    summaryDiv.innerHTML = `
-        <div class="summary-item">
-            <span>Total Questions:</span>
-            <span>${quizData.length}</span>
-        </div>
-        <div class="summary-item">
-            <span>Correct Answers:</span>
-            <span>${score}</span>
-        </div>
-        <div class="summary-item">
-            <span>Incorrect Answers:</span>
-            <span>${quizData.length - score}</span>
-        </div>
-        <div class="summary-item">
-            <span>Accuracy:</span>
-            <span>${Math.round((score / quizData.length) * 100)}%</span>
+    performanceReview.innerHTML = `
+        <h3>Performance Summary</h3>
+        <div class="performance-message ${messageClass}">
+            ${message}
         </div>
     `;
 }
 
-function reviewAnswers() {
-    showScreen('reviewScreen');
-    const reviewContainer = document.getElementById('reviewContainer');
-    reviewContainer.innerHTML = '';
+// Retake quiz
+function retakeQuiz() {
+    switchScreen('resultsScreen', 'topicScreen');
+    resetQuiz();
+}
+
+// Reset quiz state
+function resetQuiz() {
+    quizState = {
+        selectedTopics: [],
+        selectedDifficulty: null,
+        currentQuestionIndex: 0,
+        questions: [],
+        answers: [],
+        score: 0,
+        timeLimit: 120,
+        timeRemaining: 120,
+        timerInterval: null,
+        answered: false
+    };
     
-    quizData.forEach((question, index) => {
-        const userAnswer = userAnswers[index];
-        const isCorrect = userAnswer === question.correct;
+    // Reset UI
+    document.querySelectorAll('.topic-card').forEach(card => card.classList.remove('selected'));
+    document.querySelectorAll('.btn-difficulty').forEach(btn => btn.classList.remove('selected'));
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('navScore').textContent = 'Score: 0';
+    document.getElementById('navTimer').textContent = 'Time: --:--';
+}
+
+// Timer functionality
+function startTimer() {
+    clearInterval(quizState.timerInterval);
+    
+    quizState.timerInterval = setInterval(() => {
+        quizState.timeRemaining--;
+        updateTimerDisplay();
         
-        const reviewItem = document.createElement('div');
-        reviewItem.className = `review-item ${isCorrect ? 'correct' : 'incorrect'}`;
-        
-        const statusIcon = isCorrect ? '✓' : '✗';
-        const statusText = isCorrect ? 'Correct' : 'Incorrect';
-        
-        let content = `
-            <div class="review-question">${statusIcon} Question ${index + 1}: ${question.question}</div>
-        `;
-        
-        if (userAnswer !== null) {
-            content += `
-                <div class="review-answer user">
-                    <strong>Your Answer:</strong> ${question.options[userAnswer]}
-                </div>
-            `;
+        if (quizState.timeRemaining <= 0) {
+            clearInterval(quizState.timerInterval);
+            alert('Time is up! Moving to the next question.');
+            submitAnswerOnTimeout();
         }
+    }, 1000);
+}
+
+// Update timer display
+function updateTimerDisplay() {
+    const minutes = Math.floor(quizState.timeRemaining / 60);
+    const seconds = quizState.timeRemaining % 60;
+    const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    
+    const timerElement = document.getElementById('timer');
+    timerElement.textContent = timeString;
+    
+    // Update nav timer
+    document.getElementById('navTimer').textContent = `Time: ${timeString}`;
+    
+    // Change color based on time remaining
+    if (quizState.timeRemaining <= 30) {
+        timerElement.classList.add('critical');
+        timerElement.classList.remove('warning');
+    } else if (quizState.timeRemaining <= 60) {
+        timerElement.classList.add('warning');
+        timerElement.classList.remove('critical');
+    } else {
+        timerElement.classList.remove('warning', 'critical');
+    }
+}
+
+// Submit answer on timeout
+function submitAnswerOnTimeout() {
+    if (!quizState.answered) {
+        const question = quizState.questions[quizState.currentQuestionIndex];
+        quizState.answered = true;
         
-        if (!isCorrect) {
-            content += `
-                <div class="review-answer correct">
-                    <strong>Correct Answer:</strong> ${question.options[question.correct]}
-                </div>
-            `;
+        // Mark as unanswered
+        quizState.answers[quizState.currentQuestionIndex] = -1;
+        
+        // Move to next question
+        if (quizState.currentQuestionIndex < quizState.questions.length - 1) {
+            setTimeout(() => nextQuestion(), 1000);
         } else {
-            content += `
-                <div class="review-answer correct">
-                    <strong>Great!</strong> You selected the correct answer.
-                </div>
-            `;
+            setTimeout(() => finishQuiz(), 1000);
         }
-        
-        reviewItem.innerHTML = content;
-        reviewContainer.appendChild(reviewItem);
-    });
+    }
 }
 
-function backToResults() {
-    showScreen('resultsScreen');
+// Update progress bar
+function updateProgress() {
+    const progress = ((quizState.currentQuestionIndex + 1) / quizState.questions.length) * 100;
+    document.getElementById('progressFill').style.width = `${progress}%`;
+    document.getElementById('progressPercentage').textContent = `${Math.round(progress)}%`;
+    document.getElementById('questionNum').textContent = `Question ${quizState.currentQuestionIndex + 1} of ${quizState.questions.length}`;
 }
 
-function restartQuiz() {
-    showScreen('welcomeScreen');
-    currentQuestion = 0;
-    score = 0;
-    userAnswers = new Array(quizData.length).fill(null);
-    clearInterval(timerInterval);
-    document.getElementById('timer').classList.remove('warning');
-}
+// Keyboard support
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !document.getElementById('submitBtn').disabled) {
+        submitAnswer();
+    }
+    
+    // Number keys for option selection
+    const optionNum = parseInt(e.key);
+    if (optionNum >= 1 && optionNum <= 4) {
+        const option = document.querySelector(`input[value="${optionNum - 1}"]`);
+        if (option) {
+            option.click();
+        }
+    }
+});
+
+// Responsive adjustments
+window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+        // Mobile adjustments
+    }
+});
+
+// Handle page visibility
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && quizState.timerInterval) {
+        // Page is hidden
+    } else if (!document.hidden && quizState.timerInterval) {
+        // Page is visible again
+    }
+});
+
+// Prevent accidental page refresh during quiz
+window.addEventListener('beforeunload', (e) => {
+    if (quizState.currentQuestionIndex > 0 && quizState.currentQuestionIndex < quizState.questions.length) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
